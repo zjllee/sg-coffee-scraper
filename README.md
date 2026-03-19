@@ -28,12 +28,14 @@ This will:
 1. Scrape all roasters listed in `sg_roasters.md`
 2. Save structured data to `coffees.json`
 3. Generate `index.html` with search and filtering
+4. Generate `coffees.md` with readable tables
 
 Open `index.html` in a browser to browse the catalog.
 
 ## Output
 
 - `coffees.json` — all coffees in structured JSON
+- `coffees.md` — readable markdown with tables per roaster
 - `index.html` — static HTML page with origin/roast filters and text search
 
 ## Roasters
