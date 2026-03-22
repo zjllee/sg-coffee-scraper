@@ -135,6 +135,41 @@ def fetch_page(url: str, session: requests.Session) -> str | None:
         return None
 
 
+def _is_likely_coffee(product: dict) -> bool:
+    """Pre-filter: return True if a Shopify product is likely coffee beans."""
+    title = product.get("title", "").lower()
+    ptype = (product.get("product_type") or "").lower()
+    tags = product.get("tags", [])
+    tags_str = " ".join(tags).lower() if isinstance(tags, list) else str(tags).lower()
+    combined = f"{title} {ptype} {tags_str}"
+
+    # Definite non-coffee product types
+    skip_types = {
+        "merchandise", "accessories", "tea", "teapot", "teaware", "tea blend",
+        "pastry", "bakery", "bakes", "wines", "wine", "gift cards",
+        "education", "service", "birthday candles", "tote bag",
+        "coffee maker", "coffee grinder", "coffee lab tools",
+        "brewing equipment", "home brewer's accessories", "filter paper",
+        "drinking vessel", "composite",
+    }
+    if ptype in skip_types:
+        return False
+
+    # Skip by keywords in title
+    skip_kw = [
+        "grinder", "brewer", "mug", "cup", "tumbler", "filter paper",
+        "dripper", "kettle", "scale", "gift card", "tote", "shirt",
+        "cap", "hat", "sticker", "poster", "candle", "wine", "tea ",
+        "teapot", "pastry", "cake", "cookie", "merch",
+    ]
+    if any(kw in combined for kw in skip_kw):
+        # Unless it also clearly mentions coffee beans
+        if not any(kw in combined for kw in ["coffee bean", "roast", "single origin", "espresso blend"]):
+            return False
+
+    return True
+
+
 def fetch_shopify_json(base_url: str, session: requests.Session) -> str | None:
     """Try Shopify /products.json and return a text summary of products."""
     products = []
@@ -151,7 +186,21 @@ def fetch_shopify_json(base_url: str, session: requests.Session) -> str | None:
             products.extend(batch)
         except Exception:
             return None if page == 1 else _format_shopify_products(products)
-    return _format_shopify_products(products) if products else None
+
+    # Pre-filter to likely coffee products before sending to Claude
+    filtered = [p for p in products if _is_likely_coffee(p)]
+    if products and not filtered:
+        # If filtering removed everything, send all (let Claude decide)
+        filtered = products
+    elif products:
+        print(f"    Pre-filtered: {len(products)} -> {len(filtered)} likely coffee products")
+
+    # Cap at 30 products to keep Claude input manageable
+    if len(filtered) > 30:
+        print(f"    Capped from {len(filtered)} to 30 products")
+        filtered = filtered[:30]
+
+    return _format_shopify_products(filtered) if filtered else None
 
 
 def _format_shopify_products(products: list[dict]) -> str:
@@ -164,8 +213,8 @@ def _format_shopify_products(products: list[dict]) -> str:
         body = p.get("body_html", "") or ""
         body_text = BeautifulSoup(body, "lxml").get_text(" ", strip=True) if body else ""
         # Truncate long descriptions
-        if len(body_text) > 500:
-            body_text = body_text[:500] + "..."
+        if len(body_text) > 300:
+            body_text = body_text[:300] + "..."
 
         variants = p.get("variants", [])
         variant_lines = []
@@ -196,9 +245,10 @@ def scrape_roaster_pages(url: str, session: requests.Session) -> tuple[str, int]
     # Try Shopify JSON first — much richer data
     shopify_text = fetch_shopify_json(base_url, session)
     if shopify_text:
-        # Trim to limit
-        if len(shopify_text) > TOTAL_CHAR_LIMIT:
-            shopify_text = shopify_text[:TOTAL_CHAR_LIMIT] + "\n... (truncated)"
+        # Trim to limit — keep under 30K to avoid Claude output truncation
+        char_limit = min(TOTAL_CHAR_LIMIT, 30_000)
+        if len(shopify_text) > char_limit:
+            shopify_text = shopify_text[:char_limit] + "\n... (truncated)"
         return shopify_text, 1
 
     # Fallback: HTML scraping with pagination
@@ -244,20 +294,20 @@ def extract_coffees_with_claude(
     client: anthropic.Anthropic,
     roaster_name: str,
     scraped_text: str,
-) -> tuple[list[dict], str | None]:
+) -> tuple[list[dict], str | None, str | None]:
     """
     Send scraped text to Claude for coffee extraction.
-    Returns (coffees_list, summary_string).
+    Returns (coffees_list, summary_string, error_string).
     """
     if not scraped_text or len(scraped_text.strip()) < 50:
-        return [], None
+        return [], None, "Input text too short for extraction."
 
     user_content = EXTRACTION_PROMPT + f"Roaster: {roaster_name}\n\n{scraped_text}"
 
     try:
         message = client.messages.create(
             model=CLAUDE_MODEL,
-            max_tokens=4096,
+            max_tokens=8192,
             messages=[{"role": "user", "content": user_content}],
         )
         raw = message.content[0].text.strip()
@@ -270,14 +320,16 @@ def extract_coffees_with_claude(
         data = json.loads(raw)
         coffees = data.get("coffees", [])
         summary = data.get("summary")
-        return coffees, summary
+        return coffees, summary, None
 
     except json.JSONDecodeError as e:
-        print(f"    JSON parse error from Claude for {roaster_name}: {e}")
-        return [], None
+        err = f"JSON parse error: {e}"
+        print(f"    {err}")
+        return [], None, err
     except anthropic.APIError as e:
-        print(f"    Claude API error for {roaster_name}: {e}")
-        return [], None
+        err = f"Claude API error: {e}"
+        print(f"    {err}")
+        return [], None, err
 
 
 # ---------- HTML report generation ----------
@@ -554,8 +606,9 @@ def main():
             continue
 
         # Extract via Claude
-        coffees, summary = extract_coffees_with_claude(client, name, scraped_text)
-        error = None if coffees else "No coffees extracted by Claude."
+        coffees, summary, error = extract_coffees_with_claude(client, name, scraped_text)
+        if not coffees and not error:
+            error = "No coffees found on page."
 
         print(f"  Extracted {len(coffees)} coffees")
         if summary:
@@ -566,7 +619,7 @@ def main():
             "url": url,
             "coffees": coffees,
             "summary": summary,
-            "error": error if not coffees else None,
+            "error": error,
         })
         total_coffees += len(coffees)
 
