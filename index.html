@@ -85,6 +85,62 @@
     .stats { flex-direction: column; align-items: center; }
     th, td { padding: 0.4rem 0.5rem; font-size: 0.8rem; }
   }
+  .filter-bar { flex-wrap: wrap; align-items: center; gap: 0.75rem 1.25rem; }
+  .filter-group { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+  .filter-label { color: var(--muted); font-size: 0.8rem; text-transform: uppercase;
+    letter-spacing: 0.05em; white-space: nowrap; }
+  .filter-btn {
+    padding: 0.4rem 0.85rem; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--surface2); color: var(--muted); font-size: 0.82rem;
+    cursor: pointer; transition: all 0.15s;
+  }
+  .filter-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .filter-btn.active { background: var(--accent); color: #000; border-color: var(--accent); font-weight: 600; }
+  tr.hidden-row { display: none; }
+
+  /* ── Roaster dropdown ── */
+  .roaster-dropdown-wrap { position: relative; }
+  .roaster-dropdown-btn {
+    padding: 0.4rem 0.85rem; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--surface2); color: var(--text); font-size: 0.82rem;
+    cursor: pointer; display: flex; align-items: center; gap: 0.4rem; white-space: nowrap;
+    transition: border-color 0.15s;
+  }
+  .roaster-dropdown-btn:hover { border-color: var(--accent); }
+  .roaster-dropdown-btn.has-filter { border-color: var(--accent); color: var(--accent); }
+  .roaster-dropdown-panel {
+    display: none; position: absolute; top: calc(100% + 6px); left: 0; z-index: 100;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 0.5rem; min-width: 260px; max-height: 320px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  }
+  .roaster-dropdown-panel.open { display: flex; flex-direction: column; gap: 0.25rem; }
+  .roaster-dropdown-search {
+    padding: 0.45rem 0.75rem; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--surface2); color: var(--text); font-size: 0.82rem; outline: none;
+    margin-bottom: 0.25rem;
+  }
+  .roaster-dropdown-search:focus { border-color: var(--accent); }
+  .roaster-list {
+    overflow-y: auto; max-height: 210px; display: flex; flex-direction: column; gap: 1px;
+  }
+  .roaster-list label {
+    display: flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.5rem;
+    border-radius: 5px; cursor: pointer; font-size: 0.82rem; color: var(--text);
+    transition: background 0.1s;
+  }
+  .roaster-list label:hover { background: var(--surface2); }
+  .roaster-list input[type=checkbox] { accent-color: var(--accent); width: 14px; height: 14px; flex-shrink: 0; }
+  .dropdown-actions {
+    display: flex; gap: 0.4rem; padding-top: 0.4rem;
+    border-top: 1px solid var(--border); margin-top: 0.25rem;
+  }
+  .dropdown-action-btn {
+    flex: 1; padding: 0.35rem; border-radius: 5px; border: 1px solid var(--border);
+    background: var(--surface2); color: var(--muted); font-size: 0.78rem;
+    cursor: pointer; text-align: center; transition: all 0.15s;
+  }
+  .dropdown-action-btn:hover { border-color: var(--accent); color: var(--accent); }
 </style>
 </head>
 <body>
@@ -106,7 +162,19 @@
             <div class="highlight-detail">20grams Coffee Roastery &mdash; $2.50/100g</div>
         </div>
   <div class="filter-bar">
-    <input type="text" id="search" placeholder="Search coffees, roasters, origins..." oninput="filterCards()">
+    <input type="text" id="search" placeholder="Search coffees, origins, tasting notes..." oninput="applyFilters()">
+    <div class="filter-group">
+      <span class="filter-label">Weight</span>
+      <button class="filter-btn active" data-weight="all"   onclick="setWeight(this,'all')">All</button>
+      <button class="filter-btn"        data-weight="small" onclick="setWeight(this,'small')">&lt; 400g</button>
+      <button class="filter-btn"        data-weight="large" onclick="setWeight(this,'large')">&gt; 400g</button>
+    </div>
+    <div class="filter-group">
+      <span class="filter-label">Sort rows by</span>
+      <button class="filter-btn active" data-sort="default" onclick="setSort(this,'default')">Default</button>
+      <button class="filter-btn"        data-sort="price"   onclick="setSort(this,'price')">Price / 100g &#8593;</button>
+      <button class="filter-btn"        data-sort="alpha"   onclick="setSort(this,'alpha')">A &rarr; Z</button>
+    </div>
   </div>
   <div id="roasters">
     
@@ -9142,18 +9210,204 @@
             </table>
             </div>
         </div>
+    <div class="filter-group">
+      <span class="filter-label">Roasters</span>
+      <div class="roaster-dropdown-wrap" id="roasterDropdownWrap">
+        <button class="roaster-dropdown-btn" id="roasterDropdownBtn" onclick="toggleRoasterDropdown(event)">
+          <span id="roasterBtnLabel">All roasters</span> &#9660;
+        </button>
+        <div class="roaster-dropdown-panel" id="roasterDropdownPanel">
+          <input class="roaster-dropdown-search" type="text" placeholder="Find roaster..." oninput="filterRoasterList(this)">
+          <div class="roaster-list" id="roasterList"></div>
+          <div class="dropdown-actions">
+            <button class="dropdown-action-btn" onclick="selectAllRoasters()">Select all</button>
+            <button class="dropdown-action-btn" onclick="deselectAllRoasters()">Deselect all</button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 <footer>
   <p>Generated by coffee_agent.py using Claude (claude-sonnet-4-20250514)</p>
 </footer>
 <script>
-function filterCards() {
-  const q = document.getElementById('search').value.toLowerCase();
-  document.querySelectorAll('.roaster-card').forEach(card => {
-    card.style.display = card.textContent.toLowerCase().includes(q) ? '' : 'none';
+// ── State ──────────────────────────────────────────────────────────────────────
+let currentWeight  = 'all';
+let currentSort    = 'default';
+let hiddenRoasters = new Set();   // roaster card IDs that are unchecked
+const originalOrders = new WeakMap();
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
+function parseGrams(weightStr) {
+  if (!weightStr || weightStr === '-') return null;
+  const s = weightStr.toLowerCase().replace(/\s/g, '');
+  const kg = s.match(/^([\d.]+)kg$/);
+  if (kg) return parseFloat(kg[1]) * 1000;
+  const g = s.match(/^([\d.]+)g$/);
+  if (g) return parseFloat(g[1]);
+  return null;
+}
+
+function parsePricePer100g(str) {
+  if (!str || str === '-') return Infinity;
+  const m = str.match(/\$?([\d.]+)/);
+  return m ? parseFloat(m[1]) : Infinity;
+}
+
+// ── Button toggles ─────────────────────────────────────────────────────────────
+function setWeight(btn, val) {
+  currentWeight = val;
+  document.querySelectorAll('[data-weight]').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  applyFilters();
+}
+
+function setSort(btn, val) {
+  currentSort = val;
+  document.querySelectorAll('[data-sort]').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  applyFilters();
+}
+
+// ── Roaster dropdown ───────────────────────────────────────────────────────────
+function buildRoasterDropdown() {
+  const list = document.getElementById('roasterList');
+  list.innerHTML = '';
+  document.querySelectorAll('.roaster-card').forEach((card, i) => {
+    const id   = 'rc-' + i;
+    card.dataset.rcid = id;
+    const name = card.querySelector('h2').childNodes[0].textContent.trim();
+    const label = document.createElement('label');
+    label.dataset.name = name.toLowerCase();
+    label.innerHTML = `<input type="checkbox" checked onchange="toggleRoaster('${id}', this.checked)"> ${name}`;
+    list.appendChild(label);
   });
 }
+
+function toggleRoasterDropdown(e) {
+  e.stopPropagation();
+  const panel = document.getElementById('roasterDropdownPanel');
+  panel.classList.toggle('open');
+}
+
+function filterRoasterList(input) {
+  const q = input.value.toLowerCase();
+  document.querySelectorAll('#roasterList label').forEach(lbl => {
+    lbl.style.display = lbl.dataset.name.includes(q) ? '' : 'none';
+  });
+}
+
+function toggleRoaster(id, checked) {
+  if (checked) hiddenRoasters.delete(id);
+  else         hiddenRoasters.add(id);
+  updateRoasterBtnLabel();
+  applyFilters();
+}
+
+function selectAllRoasters() {
+  hiddenRoasters.clear();
+  document.querySelectorAll('#roasterList input').forEach(cb => cb.checked = true);
+  updateRoasterBtnLabel();
+  applyFilters();
+}
+
+function deselectAllRoasters() {
+  document.querySelectorAll('.roaster-card').forEach(c => hiddenRoasters.add(c.dataset.rcid));
+  document.querySelectorAll('#roasterList input').forEach(cb => cb.checked = false);
+  updateRoasterBtnLabel();
+  applyFilters();
+}
+
+function updateRoasterBtnLabel() {
+  const total  = document.querySelectorAll('.roaster-card').length;
+  const hidden = hiddenRoasters.size;
+  const btn    = document.getElementById('roasterDropdownBtn');
+  const lbl    = document.getElementById('roasterBtnLabel');
+  if (hidden === 0) {
+    lbl.textContent = 'All roasters';
+    btn.classList.remove('has-filter');
+  } else {
+    lbl.textContent = `${total - hidden} / ${total} roasters`;
+    btn.classList.add('has-filter');
+  }
+}
+
+// Close dropdown when clicking outside
+document.addEventListener('click', e => {
+  const wrap = document.getElementById('roasterDropdownWrap');
+  if (wrap && !wrap.contains(e.target)) {
+    document.getElementById('roasterDropdownPanel').classList.remove('open');
+  }
+});
+
+// ── Core filter + sort ─────────────────────────────────────────────────────────
+function applyFilters() {
+  const q = document.getElementById('search').value.toLowerCase().trim();
+
+  document.querySelectorAll('.roaster-card').forEach(card => {
+    // Roaster visibility
+    if (hiddenRoasters.has(card.dataset.rcid)) {
+      card.style.display = 'none';
+      return;
+    }
+
+    const tbody = card.querySelector('tbody');
+    if (!tbody) { card.style.display = ''; return; }
+
+    // Save original order once
+    if (!originalOrders.has(tbody)) {
+      originalOrders.set(tbody, Array.from(tbody.rows));
+    }
+
+    const rows = Array.from(tbody.rows);
+
+    // Tag each row visible/hidden
+    let visibleCount = 0;
+    rows.forEach(row => {
+      const cells      = Array.from(row.cells).map(c => c.textContent.toLowerCase());
+      const weightCell = row.cells[6] ? row.cells[6].textContent.trim() : '';
+      const grams      = parseGrams(weightCell);
+
+      const matchesSearch = !q || cells.some(c => c.includes(q));
+      const matchesWeight =
+        currentWeight === 'all'   ? true :
+        currentWeight === 'small' ? (grams === null || grams < 400) :
+        /* large */                  (grams !== null && grams > 400);
+
+      const visible = matchesSearch && matchesWeight;
+      row.classList.toggle('hidden-row', !visible);
+      if (visible) visibleCount++;
+    });
+
+    // Sort visible rows
+    const visibleRows = rows.filter(r => !r.classList.contains('hidden-row'));
+    const hiddenRows  = rows.filter(r =>  r.classList.contains('hidden-row'));
+
+    if (currentSort === 'price') {
+      visibleRows.sort((a, b) => {
+        const pa = parsePricePer100g(a.cells[7] ? a.cells[7].textContent : '');
+        const pb = parsePricePer100g(b.cells[7] ? b.cells[7].textContent : '');
+        return pa - pb;
+      });
+    } else if (currentSort === 'alpha') {
+      visibleRows.sort((a, b) =>
+        (a.cells[0] ? a.cells[0].textContent : '').localeCompare(
+         b.cells[0] ? b.cells[0].textContent : ''));
+    } else {
+      const orig = originalOrders.get(tbody);
+      visibleRows.sort((a, b) => orig.indexOf(a) - orig.indexOf(b));
+    }
+
+    [...visibleRows, ...hiddenRows].forEach(r => tbody.appendChild(r));
+
+    // Hide whole card only if search found nothing
+    card.style.display = (visibleCount === 0 && q) ? 'none' : '';
+  });
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────────
+buildRoasterDropdown();
 </script>
 </body>
 </html>
