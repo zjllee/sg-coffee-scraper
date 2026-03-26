@@ -175,6 +175,22 @@
       <button class="filter-btn"        data-sort="price"   onclick="setSort(this,'price')">Price / 100g &#8593;</button>
       <button class="filter-btn"        data-sort="alpha"   onclick="setSort(this,'alpha')">A &rarr; Z</button>
     </div>
+    <div class="filter-group">
+      <span class="filter-label">Roasters</span>
+      <div class="roaster-dropdown-wrap" id="roasterDropdownWrap">
+        <button class="roaster-dropdown-btn" id="roasterDropdownBtn" onclick="toggleRoasterDropdown(event)">
+          <span id="roasterBtnLabel">All roasters</span> &#9660;
+        </button>
+        <div class="roaster-dropdown-panel" id="roasterDropdownPanel">
+          <input class="roaster-dropdown-search" type="text" placeholder="Find roaster..." oninput="filterRoasterList(this)">
+          <div class="roaster-list" id="roasterList"></div>
+          <div class="dropdown-actions">
+            <button class="dropdown-action-btn" onclick="selectAllRoasters()">Select all</button>
+            <button class="dropdown-action-btn" onclick="deselectAllRoasters()">Deselect all</button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
   <div id="roasters">
     
@@ -9210,22 +9226,6 @@
             </table>
             </div>
         </div>
-    <div class="filter-group">
-      <span class="filter-label">Roasters</span>
-      <div class="roaster-dropdown-wrap" id="roasterDropdownWrap">
-        <button class="roaster-dropdown-btn" id="roasterDropdownBtn" onclick="toggleRoasterDropdown(event)">
-          <span id="roasterBtnLabel">All roasters</span> &#9660;
-        </button>
-        <div class="roaster-dropdown-panel" id="roasterDropdownPanel">
-          <input class="roaster-dropdown-search" type="text" placeholder="Find roaster..." oninput="filterRoasterList(this)">
-          <div class="roaster-list" id="roasterList"></div>
-          <div class="dropdown-actions">
-            <button class="dropdown-action-btn" onclick="selectAllRoasters()">Select all</button>
-            <button class="dropdown-action-btn" onclick="deselectAllRoasters()">Deselect all</button>
-          </div>
-        </div>
-      </div>
-    </div>
   </div>
 </div>
 <footer>
