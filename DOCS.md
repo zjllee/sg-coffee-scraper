@@ -7,18 +7,22 @@ Detailed reference for the sg-coffee-scraper project.
 ```
 sg-coffee-scraper/
   scrape.py             # Regex-based scraper (no API key needed)
-  coffee_agent.py       # Claude API scraper (requires ANTHROPIC_API_KEY)
+  coffee_agent.py       # LLM-powered scraper (supports multiple providers)
+  llm_providers.py      # LLM provider abstraction (Anthropic, Gemini, Ollama)
   sg_roasters.md        # Master list of roaster bookmarks
   requirements.txt      # Python dependencies
   .env.example          # Template for API key config
-  .gitignore            # Ignores .env, __pycache__, .venv
+  .gitignore            # Ignores .env, __pycache__, .venv, archives/
   README.md             # Quick-start guide
   DOCS.md               # This file
   coffees.json          # Output: flat coffee list (scrape.py)
   coffees.md            # Output: markdown tables (scrape.py)
-  index.html            # Output: interactive HTML catalog (scrape.py)
+  index.html            # Output: interactive HTML report (coffee_agent.py)
+  coffee_report.html    # Output: same as index.html (coffee_agent.py)
   roaster_data.json     # Output: grouped coffee data (coffee_agent.py)
-  coffee_report.html    # Output: HTML report (coffee_agent.py)
+  archives/             # Archived previous runs (git-ignored)
+    manifest.json       # Index of all archived runs
+    <timestamp>.json    # Archived roaster_data.json per run
 ```
 
 ---
@@ -78,27 +82,73 @@ Async scraper using `httpx` and `BeautifulSoup`. Extracts coffee data using rege
 
 ## coffee_agent.py
 
-Synchronous scraper that uses the Claude API (Sonnet) for extraction. More accurate than regex, especially for tasting notes and non-Shopify sites.
+LLM-powered scraper supporting multiple providers. More accurate than regex, especially for tasting notes and non-Shopify sites.
+
+### Usage
+
+```bash
+# Default (Anthropic Claude)
+python coffee_agent.py
+
+# Google Gemini (free tier)
+python coffee_agent.py --provider gemini
+
+# Local LLM via Ollama
+python coffee_agent.py --provider ollama
+```
+
+Or set `LLM_PROVIDER` in your `.env` file.
+
+### LLM providers (llm_providers.py)
+
+| Provider | Cost | Speed | Setup |
+|----------|------|-------|-------|
+| `anthropic` | ~$3-5/run | ~10 min | `ANTHROPIC_API_KEY` in .env |
+| `gemini` | Free (15 RPM) | ~3 min | `GOOGLE_GEMINI_API_KEY` in .env ([get key](https://aistudio.google.com/apikey)) |
+| `ollama` | Free (local) | Varies | Install Ollama, `ollama pull llama3.1`, `ollama serve` |
+
+**Env vars:**
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LLM_PROVIDER` | `anthropic` | Default provider when no `--provider` flag given |
+| `ANTHROPIC_API_KEY` | — | Required for anthropic provider |
+| `ANTHROPIC_MODEL` | `claude-sonnet-4-20250514` | Anthropic model to use |
+| `GOOGLE_GEMINI_API_KEY` | — | Required for gemini provider |
+| `GEMINI_MODEL` | `gemini-2.0-flash` | Gemini model to use |
+| `OLLAMA_URL` | `http://localhost:11434` | Ollama server URL |
+| `OLLAMA_MODEL` | `qwen3:8b` | Ollama model to use |
 
 ### How it works
 
-1. For each roaster, tries Shopify `/products.json` first.
-2. Pre-filters products to remove non-coffee items (merchandise, tea, equipment, etc.) before sending to Claude.
-3. Caps at 30 products and 30K chars to stay within Claude's output token budget.
-4. Falls back to HTML scraping with pagination for non-Shopify sites.
-5. Sends the scraped text to Claude Sonnet with a structured extraction prompt.
-6. Claude returns JSON with coffees array and a one-sentence summary.
-7. Outputs `roaster_data.json` and generates `coffee_report.html`.
+1. Archives previous run's data (if any) to `archives/`.
+2. For each roaster, tries Shopify `/products.json` first.
+3. Pre-filters products to remove non-coffee items before sending to LLM.
+4. Caps at 30 products and 30K chars to manage token budgets.
+5. Falls back to HTML scraping with pagination for non-Shopify sites.
+6. Sends scraped text to the selected LLM provider with a structured extraction prompt.
+7. LLM returns JSON with coffees array and a one-sentence summary.
+8. Outputs `roaster_data.json` and generates `coffee_report.html` + `index.html`.
+
+### Archive system
+
+Each run automatically archives the previous `roaster_data.json` to `archives/<timestamp>.json` and updates `archives/manifest.json`. The HTML report includes an archive picker dropdown to browse previous runs.
+
+**Note:** Archive browsing in the HTML report requires an HTTP server (due to browser CORS restrictions on `file://`). The latest run always works when opening the file directly.
+
+```bash
+# To browse archives, serve the project directory:
+python -m http.server 8000
+# Then open http://localhost:8000
+```
 
 ### Constants
 
 | Constant | Value | Description |
 |----------|-------|-------------|
 | `TIMEOUT` | 20 | HTTP request timeout in seconds |
-| `PAGE_CHAR_LIMIT` | 15,000 | Max chars per HTML page sent to Claude |
+| `PAGE_CHAR_LIMIT` | 15,000 | Max chars per HTML page sent to LLM |
 | `TOTAL_CHAR_LIMIT` | 50,000 | Max total chars per roaster (HTML fallback) |
-| `CLAUDE_MODEL` | `claude-sonnet-4-20250514` | Model used for extraction |
-| `EXTRACTION_PROMPT` | (see source) | System prompt instructing Claude to return structured JSON |
+| `EXTRACTION_PROMPT` | (see source) | Prompt instructing LLM to return structured JSON |
 
 ### Functions
 
@@ -113,13 +163,13 @@ Synchronous scraper that uses the Claude API (Sonnet) for extraction. More accur
 | `_format_shopify_products(products)` | Converts Shopify product dicts into a plain-text format suitable for Claude. Includes title, type, tags, description (truncated to 300 chars), and all variant prices/weights. |
 | `scrape_roaster_pages(url, session)` | Main fetch function. Tries Shopify JSON first (capped at 30K chars), falls back to HTML with pagination (up to 5 pages). Returns `(text, pages_fetched)`. |
 
-#### Claude API extraction
+#### LLM extraction
 
 | Function | Description |
 |----------|-------------|
-| `extract_coffees_with_claude(client, roaster_name, scraped_text)` | Sends scraped text + extraction prompt to Claude Sonnet. Parses the JSON response. Returns `(coffees_list, summary, error)`. Handles JSON parse errors and API errors gracefully, returning the specific error string. |
+| `extract_coffees(provider, roaster_name, scraped_text)` | Sends scraped text + extraction prompt to the selected LLM provider. Parses the JSON response. Returns `(coffees_list, summary, error)`. Handles JSON parse errors and LLM errors gracefully, returning the specific error string. |
 
-The extraction prompt instructs Claude to:
+The extraction prompt instructs the LLM to:
 - Extract only coffee beans (ignore equipment, merch, accessories)
 - Create one entry per size variant (e.g. 200g and 1kg = 2 entries)
 - Calculate `price_per_100g` when price and weight are available
@@ -129,14 +179,19 @@ The extraction prompt instructs Claude to:
 
 | Function | Description |
 |----------|-------------|
-| `generate_report(data)` | Builds `coffee_report.html` with per-roaster tables, stats summary, best-value highlighting (lowest price/100g), search bar, and error display for failed roasters. |
-| `_esc(s)` | HTML-escapes a string (`&`, `<`, `>`, `"`). |
+| `generate_report(data, provider_name)` | Generates `coffee_report.html` as a dynamic JS-driven page. Embeds current data inline (file:// compatible) with client-side rendering of stats, best-value card, roaster tables, and all filters (search, weight, sort, roaster dropdown). Includes archive picker for browsing previous runs. |
+
+#### Archive
+
+| Function | Description |
+|----------|-------------|
+| `archive_previous_run()` | Copies current `roaster_data.json` to `archives/<timestamp>.json` and updates `archives/manifest.json` with run metadata. |
 
 #### Orchestration
 
 | Function | Description |
 |----------|-------------|
-| `main()` | Iterates through all roasters sequentially. For each: scrapes pages, sends to Claude, collects results. Prints progress to console. Saves `roaster_data.json`, generates `coffee_report.html`, prints summary with failure list. |
+| `main()` | Parses `--provider` flag, archives previous run, iterates through all roasters sequentially. For each: scrapes pages, sends to LLM, collects results. Prints progress to console. Saves `roaster_data.json`, generates `coffee_report.html` + `index.html`, prints summary with failure list. |
 
 ### Error handling
 
@@ -145,19 +200,17 @@ Errors are captured at multiple levels and stored in `roaster_data.json`:
 | Error type | Stored as | Example |
 |------------|-----------|---------|
 | HTTP fetch failure | `"No content could be fetched from the site."` | SSL cert error, timeout, 403 |
-| Claude JSON parse error | `"JSON parse error: Unterminated string..."` | Response truncated at token limit |
-| Claude API error | `"Claude API error: ..."` | Rate limit, auth failure |
+| JSON parse error | `"JSON parse error: Unterminated string..."` | Response truncated at token limit |
+| LLM API error | `"Anthropic API error: ..."` / `"Gemini API error: ..."` | Rate limit, auth failure |
 | No products found | `"No coffees found on page."` | Empty/JS-rendered page |
 
 ### Cost estimate
 
-Claude Sonnet pricing: $3/M input tokens, $15/M output tokens.
-
-| Scenario | Input tokens | Output tokens | Estimated cost |
-|----------|-------------|---------------|----------------|
-| Single roaster (small) | ~3K | ~1K | ~$0.02 |
-| Single roaster (large) | ~15K | ~4K | ~$0.11 |
-| Full run (43 roasters) | ~300K | ~130K | ~$3-5 |
+| Provider | Full run (43 roasters) | Notes |
+|----------|----------------------|-------|
+| Anthropic (Sonnet) | ~$3-5 | $3/M input, $15/M output tokens |
+| Gemini (Flash) | Free | 15 RPM, 1M TPM free tier |
+| Ollama (local) | Free | Requires local GPU, quality varies by model |
 
 ---
 
@@ -194,6 +247,7 @@ Claude Sonnet pricing: $3/M input tokens, $15/M output tokens.
 ```json
 {
   "scraped_at": "2026-03-22T10:00:00",
+  "provider": "gemini",
   "roasters": [
     {
       "name": "Nylon Coffee Roasters",
